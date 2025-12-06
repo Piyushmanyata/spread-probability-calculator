@@ -84,13 +84,29 @@ function daysBetween(d1, d2) {
 }
 
 /**
+ * Simple seeded PRNG (mulberry32) for reproducible bootstrap sampling
+ * @param {number} seed - Initial seed value
+ * @returns {function} - Function that returns next random number [0,1)
+ */
+function seededRandom(seed) {
+    return function () {
+        let t = seed += 0x6D2B79F5;
+        t = Math.imul(t ^ t >>> 15, t | 1);
+        t ^= t + Math.imul(t ^ t >>> 7, t | 61);
+        return ((t ^ t >>> 14) >>> 0) / 4294967296;
+    };
+}
+
+/**
  * Calculate expanding median
  */
 function expandingMedian(arr, minPeriods) {
     const result = new Array(arr.length).fill(NaN);
     for (let i = minPeriods - 1; i < arr.length; i++) {
+        // Create a copy of the window to avoid mutating original
         const window = arr.slice(0, i + 1).filter(v => !isNaN(v));
         if (window.length >= minPeriods) {
+            // Sort is safe here since slice() creates a new array
             window.sort((a, b) => a - b);
             const mid = Math.floor(window.length / 2);
             result[i] = window.length % 2 ? window[mid] : (window[mid - 1] + window[mid]) / 2;
@@ -393,8 +409,9 @@ export class SpreadCalculator {
 
     /**
      * Calculate bootstrap confidence intervals
+     * Uses seeded PRNG for reproducibility
      */
-    calculateBootstrap(nIter = null) {
+    calculateBootstrap(nIter = null, seed = 42) {
         if (nIter === null) nIter = this.config.bootstrapIterations;
 
         const valid = this.dfValid;
@@ -403,6 +420,9 @@ export class SpreadCalculator {
 
         const tickMoves = valid.map(r => r.tickMove);
         const absMoves = valid.map(r => r.absTickMove);
+
+        // Create seeded RNG for reproducibility
+        const rng = seededRandom(seed);
 
         // Percentile helper (moved outside loop for efficiency)
         const pct = (arr, p) => {
@@ -424,7 +444,7 @@ export class SpreadCalculator {
                 let countAbs = 0, countUp = 0, countDown = 0;
 
                 for (let i = 0; i < n; i++) {
-                    const idx = Math.floor(Math.random() * n);
+                    const idx = Math.floor(rng() * n);
                     if (absMoves[idx] >= nticks) countAbs++;
                     if (tickMoves[idx] >= nticks) countUp++;
                     if (tickMoves[idx] <= -nticks) countDown++;
@@ -1115,18 +1135,5 @@ export class SpreadCalculator {
             .sort((a, b) => a.tick - b.tick);
 
         return entries;
-    }
-
-    /**
-     * Run full analysis
-     */
-    runAnalysis() {
-        this.calculateEmpiricalProbabilities();
-        this.calculateVolumeWeighted();
-        this.calculateBootstrap();
-        this.calculateConditional();
-        this.calculateSupportResistance();
-        this.calculateStats();
-        return this.results;
     }
 }

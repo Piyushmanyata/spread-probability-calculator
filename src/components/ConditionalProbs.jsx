@@ -1,4 +1,6 @@
-export default function ConditionalProbs({ data }) {
+import { memo } from 'react';
+
+function ConditionalProbs({ data }) {
     if (!data || (Object.keys(data).length === 0)) return null;
 
     const { afterUpMove, afterDownMove } = data;
@@ -151,3 +153,6 @@ export default function ConditionalProbs({ data }) {
         </div>
     );
 }
+
+export default memo(ConditionalProbs);
+

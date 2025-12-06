@@ -1,4 +1,6 @@
-export default function ProbabilityCards({ empiricalRaw, empiricalFiltered, volWeighted, bootstrap, config }) {
+import { memo } from 'react';
+
+function ProbabilityCards({ empiricalRaw, empiricalFiltered, volWeighted, bootstrap, config }) {
     if (!empiricalFiltered?.probs) return null;
 
     const tickLevels = config?.tickLevels || [1, 2, 3];
@@ -15,8 +17,8 @@ export default function ProbabilityCards({ empiricalRaw, empiricalFiltered, volW
             <div className="relative h-2 bg-gray-700 rounded-full overflow-hidden">
                 <div
                     className={`absolute h-full rounded-full transition-all duration-500 ${colorClass.includes('green') ? 'bg-green-500' :
-                            colorClass.includes('red') ? 'bg-red-500' :
-                                'bg-primary-500'
+                        colorClass.includes('red') ? 'bg-red-500' :
+                            'bg-primary-500'
                         }`}
                     style={{ width: `${value * 100}%` }}
                 />
@@ -129,3 +131,6 @@ export default function ProbabilityCards({ empiricalRaw, empiricalFiltered, volW
         </div>
     );
 }
+
+export default memo(ProbabilityCards);
+

@@ -1,4 +1,6 @@
-export default function StatsPanel({ data, spreadStats }) {
+import { memo } from 'react';
+
+function StatsPanel({ data, spreadStats }) {
     if (!data) return null;
 
     const { distribution, autocorrelation, ttest, runsTest } = data;
@@ -156,3 +158,6 @@ export default function StatsPanel({ data, spreadStats }) {
         </div>
     );
 }
+
+export default memo(StatsPanel);
+

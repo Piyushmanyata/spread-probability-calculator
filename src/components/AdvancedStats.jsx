@@ -1,4 +1,6 @@
-export default function AdvancedStats({ streaks, rangeProbs, expectedValue, weekday, recentComparison, config }) {
+import { memo } from 'react';
+
+function AdvancedStats({ streaks, rangeProbs, expectedValue, weekday, recentComparison, config }) {
     const tickLevels = config?.tickLevels || [1, 2, 3];
 
     // If no data at all, don't render
@@ -184,3 +186,6 @@ export default function AdvancedStats({ streaks, rangeProbs, expectedValue, week
         </div>
     );
 }
+
+export default memo(AdvancedStats);
+

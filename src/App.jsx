@@ -16,7 +16,7 @@ export default function App() {
     const [isLoading, setIsLoading] = useState(false);
     const [loadingProgress, setLoadingProgress] = useState(0);
     const [error, setError] = useState(null);
-    const [config] = useState(DEFAULT_CONFIG);
+    const config = DEFAULT_CONFIG;
 
     const handleFilesSelected = useCallback(async (file1, file2) => {
         setIsLoading(true);

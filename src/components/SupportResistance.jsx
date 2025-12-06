@@ -1,4 +1,6 @@
-export default function SupportResistance({ data, tickSize = 0.005 }) {
+import { memo } from 'react';
+
+function SupportResistance({ data, tickSize = 0.005 }) {
     if (!data) return null;
 
     const { currentPrice, direction, resistance, support, nextTarget, lookbackDays } = data;
@@ -176,3 +178,6 @@ export default function SupportResistance({ data, tickSize = 0.005 }) {
         </div>
     );
 }
+
+export default memo(SupportResistance);
+

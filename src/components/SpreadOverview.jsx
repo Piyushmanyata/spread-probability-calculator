@@ -1,4 +1,6 @@
-export default function SpreadOverview({ results }) {
+import { memo } from 'react';
+
+function SpreadOverview({ results }) {
     if (!results) return null;
 
     const { nValid, nRaw, nOutliers, nWarmup, dateRange, currentPrice, spreadStats, totalVolume } = results;
@@ -110,3 +112,6 @@ export default function SpreadOverview({ results }) {
         </div>
     );
 }
+
+export default memo(SpreadOverview);
+
