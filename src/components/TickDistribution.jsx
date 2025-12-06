@@ -1,6 +1,7 @@
+import { memo } from 'react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, ReferenceLine, CartesianGrid } from 'recharts';
 
-export default function TickDistribution({ data }) {
+function TickDistribution({ data }) {
     if (!data || data.length === 0) return null;
 
     const getBarColor = (tick) => {
@@ -121,4 +122,6 @@ export default function TickDistribution({ data }) {
         </div>
     );
 }
+
+export default memo(TickDistribution);
 
