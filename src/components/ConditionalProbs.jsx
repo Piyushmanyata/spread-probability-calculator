@@ -5,11 +5,35 @@ function ConditionalProbs({ data }) {
 
     const { afterUpMove, afterDownMove } = data;
 
+    // Pre-compute bias values outside JSX for clarity
+    const upBias = afterUpMove
+        ? (() => {
+            const denom = afterUpMove.probContinueUp + afterUpMove.probReverseDown;
+            return denom === 0 ? 50 : (afterUpMove.probReverseDown / denom) * 100;
+        })()
+        : 50;
+
+    const downBias = afterDownMove
+        ? (() => {
+            const denom = afterDownMove.probContinueDown + afterDownMove.probReverseUp;
+            return denom === 0 ? 50 : (afterDownMove.probReverseUp / denom) * 100;
+        })()
+        : 50;
+
+    const upActivity = afterUpMove
+        ? (afterUpMove.probContinueUp + afterUpMove.probReverseDown) * 100
+        : 0;
+
+    const downActivity = afterDownMove
+        ? (afterDownMove.probContinueDown + afterDownMove.probReverseUp) * 100
+        : 0;
+
     const BiasIndicator = ({ bias, activity }) => {
         // FIX: Guard against NaN from 0/0 division
         const safeBias = isNaN(bias) ? 50 : bias;
-        const activityLabel = activity > 60 ? 'High' : activity > 30 ? 'Medium' : 'Low';
-        const activityColor = activity > 60 ? 'text-green-400' : activity > 30 ? 'text-yellow-400' : 'text-gray-400';
+        const safeActivity = isNaN(activity) ? 0 : activity;
+        const activityLabel = safeActivity > 60 ? 'High' : safeActivity > 30 ? 'Medium' : 'Low';
+        const activityColor = safeActivity > 60 ? 'text-green-400' : safeActivity > 30 ? 'text-yellow-400' : 'text-gray-400';
 
         return (
             <div className="flex gap-4 mt-3 pt-3 border-t border-gray-700">
@@ -28,33 +52,37 @@ function ConditionalProbs({ data }) {
                 <div className="flex-1">
                     <span className="text-xs text-gray-500 uppercase">Activity</span>
                     <p className={`font-semibold ${activityColor}`}>
-                        {activity.toFixed(0)}% ({activityLabel})
+                        {safeActivity.toFixed(0)}% ({activityLabel})
                     </p>
                 </div>
             </div>
         );
     };
 
-    const ProbRow = ({ label, value, colorClass }) => (
-        <div className="flex justify-between items-center py-2">
-            <span className="text-gray-400">{label}</span>
-            <div className="flex items-center gap-3">
-                <div className="w-24 h-2 bg-gray-700 rounded-full overflow-hidden">
-                    <div
-                        className={`h-full rounded-full ${colorClass === 'green' ? 'bg-green-500' :
-                            colorClass === 'red' ? 'bg-red-500' : 'bg-gray-500'
-                            }`}
-                        style={{ width: `${value * 100}%` }}
-                    />
+    const ProbRow = ({ label, value, colorClass }) => {
+        // Guard against undefined/NaN values
+        const safeValue = (value !== undefined && value !== null && !isNaN(value)) ? value : 0;
+        return (
+            <div className="flex justify-between items-center py-2">
+                <span className="text-gray-400">{label}</span>
+                <div className="flex items-center gap-3">
+                    <div className="w-24 h-2 bg-gray-700 rounded-full overflow-hidden">
+                        <div
+                            className={`h-full rounded-full ${colorClass === 'green' ? 'bg-green-500' :
+                                colorClass === 'red' ? 'bg-red-500' : 'bg-gray-500'
+                                }`}
+                            style={{ width: `${safeValue * 100}%` }}
+                        />
+                    </div>
+                    <span className={`font-mono font-semibold w-14 text-right ${colorClass === 'green' ? 'text-green-400' :
+                        colorClass === 'red' ? 'text-red-400' : 'text-gray-400'
+                        }`}>
+                        {(safeValue * 100).toFixed(1)}%
+                    </span>
                 </div>
-                <span className={`font-mono font-semibold w-14 text-right ${colorClass === 'green' ? 'text-green-400' :
-                    colorClass === 'red' ? 'text-red-400' : 'text-gray-400'
-                    }`}>
-                    {(value * 100).toFixed(1)}%
-                </span>
             </div>
-        </div>
-    );
+        );
+    };
 
     return (
         <div className="glass-card p-6 glass-card-hover">
@@ -95,13 +123,7 @@ function ConditionalProbs({ data }) {
                                 colorClass="gray"
                             />
 
-                            <BiasIndicator
-                                bias={(() => {
-                                    const denom = afterUpMove.probContinueUp + afterUpMove.probReverseDown;
-                                    return denom === 0 ? 50 : (afterUpMove.probReverseDown / denom) * 100;
-                                })()}
-                                activity={(afterUpMove.probContinueUp + afterUpMove.probReverseDown) * 100}
-                            />
+                            <BiasIndicator bias={upBias} activity={upActivity} />
                         </>
                     ) : (
                         <p className="text-gray-500 italic">Insufficient samples</p>
@@ -137,13 +159,7 @@ function ConditionalProbs({ data }) {
                                 colorClass="gray"
                             />
 
-                            <BiasIndicator
-                                bias={(() => {
-                                    const denom = afterDownMove.probContinueDown + afterDownMove.probReverseUp;
-                                    return denom === 0 ? 50 : (afterDownMove.probReverseUp / denom) * 100;
-                                })()}
-                                activity={(afterDownMove.probContinueDown + afterDownMove.probReverseUp) * 100}
-                            />
+                            <BiasIndicator bias={downBias} activity={downActivity} />
                         </>
                     ) : (
                         <p className="text-gray-500 italic">Insufficient samples</p>

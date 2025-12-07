@@ -77,8 +77,14 @@ function getDateKey(date) {
 
 /**
  * Calculate days between two dates
+ * @param {Date} d1 - Start date
+ * @param {Date} d2 - End date
+ * @returns {number} - Number of days between dates, or 0 if dates invalid
  */
 function daysBetween(d1, d2) {
+    if (!d1 || !d2 || isNaN(d1.getTime()) || isNaN(d2.getTime())) {
+        return 0;
+    }
     const msPerDay = 24 * 60 * 60 * 1000;
     return Math.round((d2 - d1) / msPerDay);
 }
@@ -764,7 +770,11 @@ export class SpreadCalculator {
         const tickMoves = raw.map(r => r.tickMove);
         const absMoves = raw.map(r => r.absTickMove);
 
-        if (tickMoves.length < 10) return {};
+        if (tickMoves.length < 10) {
+            // Store empty result to prevent undefined errors in UI
+            this.results.stats = {};
+            return {};
+        }
 
         const stdDir = jStat.stdev(tickMoves, true);
         const stdAbs = jStat.stdev(absMoves, true);
@@ -1119,7 +1129,14 @@ export class SpreadCalculator {
      */
     getTickDistribution() {
         const valid = this.dfValid;
+
+        // Guard against empty data to prevent division by zero
+        if (!valid || valid.length === 0) {
+            return [];
+        }
+
         const counts = {};
+        const n = valid.length;
 
         valid.forEach(r => {
             const tick = r.tickMove;
@@ -1130,7 +1147,7 @@ export class SpreadCalculator {
             .map(([k, v]) => ({
                 tick: parseInt(k),
                 count: v,
-                pct: (v / valid.length) * 100,
+                pct: (v / n) * 100,
             }))
             .sort((a, b) => a.tick - b.tick);
 

@@ -10,7 +10,8 @@ function TickDistribution({ data }) {
         return '#6b7280';
     };
 
-    const maxCount = Math.max(...data.map(d => d.count));
+    // Guard against empty data to prevent division by zero
+    const maxCount = data.length > 0 ? Math.max(...data.map(d => d.count), 1) : 1;
 
     const CustomTooltip = ({ active, payload }) => {
         if (active && payload && payload.length) {

@@ -66,7 +66,7 @@ function ProbabilityCards({ empiricalRaw, empiricalFiltered, volWeighted, bootst
                                 </h4>
                                 <div className="text-right">
                                     <div className="text-2xl font-bold font-mono gradient-text">
-                                        {(filtered.probAtLeast * 100).toFixed(1)}%
+                                        {((filtered.probAtLeast ?? 0) * 100).toFixed(1)}%
                                     </div>
                                     <div className="text-xs text-gray-500">P(≥{n} tick)</div>
                                 </div>
