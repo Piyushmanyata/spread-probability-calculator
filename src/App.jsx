@@ -10,6 +10,7 @@ import LoadingOverlay from './components/LoadingOverlay';
 import AdvancedStats from './components/AdvancedStats';
 import TailRiskAnalysis from './components/TailRiskAnalysis';
 import DistributionInsights from './components/DistributionInsights';
+import PredictiveInsights from './components/PredictiveInsights';
 import { SpreadCalculator, parseCSV, DEFAULT_CONFIG } from './lib/calculator';
 
 export default function App() {
@@ -74,6 +75,7 @@ export default function App() {
             calculator.calculateNormalityTests();
             calculator.calculateVolatilityClustering();
             calculator.calculateDistributionRegime();
+            calculator.calculatePredictiveInsights();
 
             setLoadingProgress(95);
             const analysisResults = calculator.results;
@@ -152,6 +154,11 @@ export default function App() {
                             <div className="results-grid">
                                 {/* Overview */}
                                 <SpreadOverview results={results} />
+
+                                {/* Predictive Insights - Hero Position */}
+                                <div className="full-width-card">
+                                    <PredictiveInsights predictions={results.predictions} />
+                                </div>
 
                                 {/* Tick Distribution Chart */}
                                 <TickDistribution data={tickDistribution} />

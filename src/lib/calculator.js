@@ -1138,18 +1138,26 @@ export class SpreadCalculator {
         // Sort for percentile calculations (ascending - losses are negative)
         const sorted = [...tickMoves].sort((a, b) => a - b);
 
+        // Helper for interpolated percentile (more accurate than floor index)
+        const percentile = (arr, p) => {
+            const idx = p * (arr.length - 1);
+            const lower = Math.floor(idx);
+            const upper = Math.ceil(idx);
+            if (lower === upper || upper >= arr.length) return arr[lower];
+            return arr[lower] * (upper - idx) + arr[upper] * (idx - lower);
+        };
+
         // Historical VaR (negative values represent losses)
         // VaR at 95% means 5th percentile of returns
-        const var95Idx = Math.floor(n * 0.05);
-        const var99Idx = Math.floor(n * 0.01);
-
-        const historicalVaR95 = Math.abs(sorted[var95Idx]);
-        const historicalVaR99 = Math.abs(sorted[var99Idx]);
+        const historicalVaR95 = Math.abs(percentile(sorted, 0.05));
+        const historicalVaR99 = Math.abs(percentile(sorted, 0.01));
 
         // Expected Shortfall (CVaR) - average of losses beyond VaR
         // "ES asks 'If things go bad, how bad will they be?'"
-        const es95Losses = sorted.slice(0, var95Idx + 1);
-        const es99Losses = sorted.slice(0, var99Idx + 1);
+        const var95Idx = Math.max(1, Math.floor(n * 0.05));
+        const var99Idx = Math.max(1, Math.floor(n * 0.01));
+        const es95Losses = sorted.slice(0, var95Idx);
+        const es99Losses = sorted.slice(0, var99Idx);
 
         const expectedShortfall95 = es95Losses.length > 0
             ? Math.abs(jStat.mean(es95Losses))
@@ -1177,9 +1185,11 @@ export class SpreadCalculator {
         const esVarRatio99 = historicalVaR99 > 0 ? expectedShortfall99 / historicalVaR99 : 1;
 
         // Maximum observed loss and its sigma equivalence
-        const maxLoss = Math.abs(Math.min(...tickMoves));
+        // FIX: maxLoss is positive, so sigma = (maxLoss + mean) / std for left-tail distance
+        const minMove = Math.min(...tickMoves);
+        const maxLoss = Math.abs(minMove);
         const maxGain = Math.max(...tickMoves);
-        const sigmaOfMaxLoss = std > 0 ? (maxLoss - mean) / std : 0;
+        const sigmaOfMaxLoss = std > 0 ? Math.abs(minMove - mean) / std : 0;
 
         // Hill tail index estimator (for heavy tails)
         // Focuses on the top 10% of absolute values
@@ -1191,12 +1201,13 @@ export class SpreadCalculator {
         let hillSum = 0;
         let hillCount = 0;
         for (let i = 0; i < k && threshold > 0; i++) {
-            if (sortedAbs[i] > 0) {
+            if (sortedAbs[i] > threshold) {  // FIX: Only count values ABOVE threshold
                 hillSum += Math.log(sortedAbs[i] / threshold);
                 hillCount++;
             }
         }
-        const hillIndex = hillCount > 0 ? hillCount / hillSum : Infinity;
+        // FIX: Handle edge case where hillSum is 0 or negative
+        const hillIndex = (hillCount > 0 && hillSum > 0) ? hillCount / hillSum : Infinity;
         // Hill index < 4 suggests power-law tails; Normal distribution would have ~infinite
 
         const results = {
@@ -1259,10 +1270,10 @@ export class SpreadCalculator {
         const kurtosis = jStat.kurtosis(tickMoves) - 3; // Excess kurtosis
 
         // Jarque-Bera test
-        // JB = (n/6) * [S² + (1/4)(K-3)²]
-        // where S is skewness, K is kurtosis
+        // JB = (n/6) * [S² + (K²/4)]  where K is excess kurtosis
+        // FIX: kurtosis variable is already excess kurtosis, use it directly
         // Under H0 (normality), JB ~ Chi²(2)
-        const jbStat = (n / 6) * (skewness ** 2 + 0.25 * kurtosis ** 2);
+        const jbStat = (n / 6) * (skewness ** 2 + (kurtosis ** 2) / 4);
 
         // Chi-squared p-value with 2 degrees of freedom
         // Using survival function: P(X > jbStat) = 1 - CDF(jbStat)
@@ -1382,26 +1393,32 @@ export class SpreadCalculator {
         const archTestStat = n * lag1SquaredCorr ** 2; // Approximate LM stat
         const hasARCHEffects = Math.abs(lag1SquaredCorr) > 0.1;
 
-        // Volatility persistence - sum of autocorrelations
-        const autocorrSum = Object.values(squaredAutocorr)
-            .filter(v => v !== null)
-            .reduce((sum, v) => sum + Math.abs(v), 0);
+        // FIX: Guard against division by zero
+        const validAutocorrs = Object.values(squaredAutocorr).filter(v => v !== null);
+        const volatilityPersistence = validAutocorrs.length > 0
+            ? validAutocorrs.reduce((sum, v) => sum + Math.abs(v), 0) / validAutocorrs.length
+            : 0;
 
-        const volatilityPersistence = autocorrSum / Object.values(squaredAutocorr).filter(v => v !== null).length;
-
-        // Leverage effect approximation
+        // Leverage effect - proper correlation calculation
         // "Negative correlation between an asset's return and its changes in volatility"
-        // Check if negative returns are followed by higher volatility
-        let leverageSum = 0;
-        let leverageCount = 0;
-        for (let i = 1; i < n; i++) {
-            if (tickMoves[i - 1] !== 0 && absReturns[i] !== undefined) {
-                // Correlation between return and next period's absolute return
-                leverageSum += tickMoves[i - 1] * absReturns[i];
-                leverageCount++;
+        let leverageCorr = 0;
+        if (n > 1) {
+            const returns = tickMoves.slice(0, -1);
+            const nextAbsReturns = absReturns.slice(1);
+            const meanRet = jStat.mean(returns);
+            const meanAbs = jStat.mean(nextAbsReturns);
+            const stdRet = jStat.stdev(returns, true);
+            const stdAbs = jStat.stdev(nextAbsReturns, true);
+
+            if (stdRet > 0 && stdAbs > 0) {
+                let sum = 0;
+                for (let i = 0; i < returns.length; i++) {
+                    sum += (returns[i] - meanRet) * (nextAbsReturns[i] - meanAbs);
+                }
+                leverageCorr = sum / ((returns.length - 1) * stdRet * stdAbs);
             }
         }
-        const leverageEffect = leverageCount > 0 ? leverageSum / leverageCount : 0;
+        const leverageEffect = isFinite(leverageCorr) ? leverageCorr : 0;
         const hasLeverageEffect = leverageEffect < -0.1; // Negative indicates leverage effect
 
         // Volatility regime detection
@@ -1545,6 +1562,217 @@ export class SpreadCalculator {
 
         this.results.distributionRegime = results;
         return results;
+    }
+
+    /**
+     * Calculate predictive insights - synthesizes all analysis into actionable predictions
+     * This is the "so what?" layer that explains what the statistics mean
+     */
+    calculatePredictiveInsights() {
+        const n = this.dfValid.length;
+        if (n < 30) return {};
+
+        // Gather all computed results
+        const empirical = this.results.empiricalFiltered?.probs || {};
+        const conditional = this.results.conditional || {};
+        const tailRisk = this.results.tailRisk || {};
+        const volatility = this.results.volatilityClustering || {};
+        const regime = this.results.distributionRegime || {};
+        const streaks = this.results.streaks || {};
+        const recent = this.results.recentComparison || {};
+        const stats = this.results.stats?.distribution || {};
+        const sr = this.results.supportResistance || {};
+
+        // ===============================
+        // 1. TOMORROW'S MOVE PREDICTION
+        // ===============================
+        const predictions = {};
+
+        // Base probabilities from empirical data
+        const probUp = empirical[1]?.probUpAtLeast || 0;
+        const probDown = empirical[1]?.probDownAtLeast || 0;
+        const probFlat = 1 - probUp - probDown;
+
+        // Adjust based on conditional probabilities (momentum/mean-reversion)
+        let adjustedProbUp = probUp;
+        let adjustedProbDown = probDown;
+
+        // Get last move direction
+        const lastMove = this.dfValid[n - 1]?.tickMove || 0;
+
+        if (lastMove > 0 && conditional.afterUpMove) {
+            // After up move, adjust based on continuation vs reversal tendency
+            const contProb = conditional.afterUpMove.probContinueUp;
+            const revProb = conditional.afterUpMove.probReverseDown;
+            adjustedProbUp = contProb;
+            adjustedProbDown = revProb;
+        } else if (lastMove < 0 && conditional.afterDownMove) {
+            const contProb = conditional.afterDownMove.probContinueDown;
+            const revProb = conditional.afterDownMove.probReverseUp;
+            adjustedProbDown = contProb;
+            adjustedProbUp = revProb;
+        }
+
+        // Volatility regime adjustment
+        if (volatility.volRegime === 'HIGH_VOL') {
+            // Higher probability of extreme moves in high vol
+            adjustedProbUp *= 1.1;
+            adjustedProbDown *= 1.1;
+        } else if (volatility.volRegime === 'LOW_VOL') {
+            adjustedProbUp *= 0.9;
+            adjustedProbDown *= 0.9;
+        }
+
+        // Normalize
+        const totalProb = adjustedProbUp + adjustedProbDown + Math.max(0, 1 - adjustedProbUp - adjustedProbDown);
+        adjustedProbUp = Math.min(adjustedProbUp / totalProb, 0.99);
+        adjustedProbDown = Math.min(adjustedProbDown / totalProb, 0.99);
+
+        predictions.tomorrowMove = {
+            probUp: adjustedProbUp,
+            probDown: adjustedProbDown,
+            probFlat: Math.max(0, 1 - adjustedProbUp - adjustedProbDown),
+            expectedMove: stats.meanDir || 0,
+            confidenceLevel: n > 100 ? 'HIGH' : n > 50 ? 'MEDIUM' : 'LOW',
+            reasoning: lastMove > 0
+                ? `After today's UP move, historical data shows ${(adjustedProbUp * 100).toFixed(0)}% chance of continuation`
+                : lastMove < 0
+                    ? `After today's DOWN move, historical data shows ${(adjustedProbUp * 100).toFixed(0)}% chance of reversal UP`
+                    : `Based on overall historical probabilities`,
+        };
+
+        // ===============================
+        // 2. EXPECTED RANGE PREDICTION
+        // ===============================
+        const vol = volatility.recentVolatility || stats.stdDir || 1;
+        const expectedAbsMove = stats.meanAbs || 1;
+
+        predictions.expectedRange = {
+            mostLikely: Math.round(expectedAbsMove * 10) / 10,
+            oneStdDev: Math.round(vol * 10) / 10,
+            twoStdDev: Math.round(vol * 2 * 10) / 10,
+            probWithin1Tick: empirical[1]?.probExact || 0,
+            probWithin2Ticks: (empirical[1]?.probExact || 0) + (empirical[2]?.probExact || 0),
+            interpretation: `Most likely move: ±${expectedAbsMove.toFixed(1)} ticks. In high vol regime, expect ±${(vol * 1.5).toFixed(1)} ticks.`,
+        };
+
+        // ===============================
+        // 3. TAIL RISK WARNING
+        // ===============================
+        predictions.tailRiskWarning = {
+            isActive: tailRisk.isFatTailed || (regime.riskScore || 0) > 50,
+            var95Ticks: tailRisk.historicalVaR95 || 0,
+            var99Ticks: tailRisk.historicalVaR99 || 0,
+            maxLoss: tailRisk.maxLoss || 0,
+            interpretation: tailRisk.isFatTailed
+                ? `⚠️ CAUTION: This spread has fat tails. The worst 5% of days see losses of ${(tailRisk.historicalVaR95 || 0).toFixed(1)}+ ticks. Extreme ${(tailRisk.maxLoss || 0).toFixed(0)}-tick moves have occurred.`
+                : `Standard tail risk. 95% of days stay within ±${(tailRisk.historicalVaR95 || 0).toFixed(1)} ticks.`,
+        };
+
+        // ===============================
+        // 4. REGIME ASSESSMENT
+        // ===============================
+        const isVolatilityRising = (volatility.volRegimeRatio || 1) > 1.2;
+        const isVolatilityFalling = (volatility.volRegimeRatio || 1) < 0.8;
+
+        predictions.regimeAssessment = {
+            currentRegime: volatility.volRegime || 'NORMAL',
+            volatilityTrend: isVolatilityRising ? 'RISING' : isVolatilityFalling ? 'FALLING' : 'STABLE',
+            clusteringActive: volatility.hasARCHEffects || false,
+            interpretation: volatility.hasARCHEffects
+                ? `📊 Volatility is clustering - expect current ${volatility.volRegime === 'HIGH_VOL' ? 'turbulence' : 'calm'} to persist for several days.`
+                : `No strong volatility persistence. Each day's volatility is relatively independent.`,
+        };
+
+        // ===============================
+        // 5. MOMENTUM SIGNAL
+        // ===============================
+        const recentBias = recent.recent?.avgMove || 0;
+        const historicalBias = recent.historical?.avgMove || 0;
+        const biasDiff = recentBias - historicalBias;
+
+        predictions.momentumSignal = {
+            direction: biasDiff > 0.3 ? 'BULLISH' : biasDiff < -0.3 ? 'BEARISH' : 'NEUTRAL',
+            strength: Math.min(Math.abs(biasDiff) * 100, 100),
+            recentVsHistorical: biasDiff,
+            interpretation: Math.abs(biasDiff) > 0.3
+                ? `Recent 30-day average move (${recentBias.toFixed(2)}T) differs from historical (${historicalBias.toFixed(2)}T). ${biasDiff > 0 ? 'Bullish' : 'Bearish'} momentum detected.`
+                : `No significant momentum. Recent behavior matches historical patterns.`,
+        };
+
+        // ===============================
+        // 6. SUPPORT/RESISTANCE TARGETS
+        // ===============================
+        predictions.priceTargets = {
+            nextResistance: sr.resistance?.[0]?.price || null,
+            nextSupport: sr.support?.[0]?.price || null,
+            currentTrend: sr.direction || 'FLAT',
+            interpretation: sr.nextTarget
+                ? `Next ${sr.direction === 'UP' ? 'resistance' : 'support'} at ${sr.nextTarget.price.toFixed(3)} (${sr.nextTarget.distanceTicks}T away, strength ${sr.nextTarget.strength}/10)`
+                : 'No clear S/R targets identified',
+        };
+
+        // ===============================
+        // 7. TRADING RECOMMENDATION
+        // ===============================
+        let recommendation = 'NEUTRAL - No clear edge';
+        let confidence = 'LOW';
+
+        if (adjustedProbUp > 0.6 && !tailRisk.isFatTailed) {
+            recommendation = 'LEAN LONG - Probability favors upside';
+            confidence = adjustedProbUp > 0.7 ? 'HIGH' : 'MEDIUM';
+        } else if (adjustedProbDown > 0.6 && !tailRisk.isFatTailed) {
+            recommendation = 'LEAN SHORT - Probability favors downside';
+            confidence = adjustedProbDown > 0.7 ? 'HIGH' : 'MEDIUM';
+        } else if (tailRisk.isFatTailed && volatility.volRegime === 'HIGH_VOL') {
+            recommendation = 'REDUCE SIZE - High tail risk in volatile regime';
+            confidence = 'HIGH';
+        } else if (volatility.volRegime === 'LOW_VOL') {
+            recommendation = 'RANGE TRADE - Low volatility, fade extremes';
+            confidence = 'MEDIUM';
+        }
+
+        predictions.tradingRecommendation = {
+            action: recommendation,
+            confidence,
+            riskWarnings: regime.warnings || [],
+        };
+
+        // ===============================
+        // 8. PLAIN ENGLISH SUMMARY
+        // ===============================
+        const summaryParts = [];
+
+        // Direction
+        if (predictions.tomorrowMove.probUp > predictions.tomorrowMove.probDown + 0.1) {
+            summaryParts.push(`📈 Tomorrow leans UP (${(predictions.tomorrowMove.probUp * 100).toFixed(0)}% probability)`);
+        } else if (predictions.tomorrowMove.probDown > predictions.tomorrowMove.probUp + 0.1) {
+            summaryParts.push(`📉 Tomorrow leans DOWN (${(predictions.tomorrowMove.probDown * 100).toFixed(0)}% probability)`);
+        } else {
+            summaryParts.push(`↔️ Tomorrow is a coin toss (no clear directional edge)`);
+        }
+
+        // Volatility
+        if (volatility.volRegime === 'HIGH_VOL') {
+            summaryParts.push(`⚡ HIGH volatility regime active - expect larger swings`);
+        } else if (volatility.volRegime === 'LOW_VOL') {
+            summaryParts.push(`😴 LOW volatility regime - quiet market expected`);
+        }
+
+        // Risk
+        if (tailRisk.isFatTailed) {
+            summaryParts.push(`⚠️ Fat tails present - extreme moves happen more often than normal`);
+        }
+
+        // Levels
+        if (sr.nextTarget) {
+            summaryParts.push(`🎯 Key level: ${sr.direction === 'UP' ? 'Resistance' : 'Support'} at ${sr.nextTarget.price.toFixed(3)}`);
+        }
+
+        predictions.plainEnglishSummary = summaryParts;
+
+        this.results.predictions = predictions;
+        return predictions;
     }
 
     /**
