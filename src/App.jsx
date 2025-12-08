@@ -8,6 +8,8 @@ import StatsPanel from './components/StatsPanel';
 import SpreadOverview from './components/SpreadOverview';
 import LoadingOverlay from './components/LoadingOverlay';
 import AdvancedStats from './components/AdvancedStats';
+import TailRiskAnalysis from './components/TailRiskAnalysis';
+import DistributionInsights from './components/DistributionInsights';
 import { SpreadCalculator, parseCSV, DEFAULT_CONFIG } from './lib/calculator';
 
 export default function App() {
@@ -58,13 +60,20 @@ export default function App() {
             calculator.calculateSupportResistance();
             calculator.calculateStats();
 
-            setLoadingProgress(85);
+            setLoadingProgress(80);
             // New calculations
             calculator.calculateStreaks();
             calculator.calculateRangeProbabilities();
             calculator.calculateExpectedValue();
             calculator.calculateWeekdayProbs();
             calculator.calculateRecentComparison();
+
+            setLoadingProgress(90);
+            // Advanced statistical analysis (from research document)
+            calculator.calculateTailRisk();
+            calculator.calculateNormalityTests();
+            calculator.calculateVolatilityClustering();
+            calculator.calculateDistributionRegime();
 
             setLoadingProgress(95);
             const analysisResults = calculator.results;
@@ -178,6 +187,23 @@ export default function App() {
                                         weekday={results.weekday}
                                         recentComparison={results.recentComparison}
                                         config={config}
+                                    />
+                                </div>
+
+                                {/* Tail Risk Analysis */}
+                                <div className="full-width-card">
+                                    <TailRiskAnalysis
+                                        data={results.tailRisk}
+                                        tickSize={config.tickSize}
+                                    />
+                                </div>
+
+                                {/* Distribution Insights */}
+                                <div className="full-width-card">
+                                    <DistributionInsights
+                                        normalityTests={results.normalityTests}
+                                        volatilityClustering={results.volatilityClustering}
+                                        distributionRegime={results.distributionRegime}
                                     />
                                 </div>
 

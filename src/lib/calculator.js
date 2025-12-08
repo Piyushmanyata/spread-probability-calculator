@@ -1125,6 +1125,429 @@ export class SpreadCalculator {
     }
 
     /**
+     * Calculate tail risk metrics (VaR and Expected Shortfall)
+     * Based on research: "Expected Shortfall (ES) measures the average loss given that the loss exceeds the VaR threshold"
+     */
+    calculateTailRisk() {
+        const valid = this.dfValid;
+        if (valid.length < 30) return {}; // Need sufficient data for tail analysis
+
+        const tickMoves = valid.map(r => r.tickMove);
+        const n = valid.length;
+
+        // Sort for percentile calculations (ascending - losses are negative)
+        const sorted = [...tickMoves].sort((a, b) => a - b);
+
+        // Historical VaR (negative values represent losses)
+        // VaR at 95% means 5th percentile of returns
+        const var95Idx = Math.floor(n * 0.05);
+        const var99Idx = Math.floor(n * 0.01);
+
+        const historicalVaR95 = Math.abs(sorted[var95Idx]);
+        const historicalVaR99 = Math.abs(sorted[var99Idx]);
+
+        // Expected Shortfall (CVaR) - average of losses beyond VaR
+        // "ES asks 'If things go bad, how bad will they be?'"
+        const es95Losses = sorted.slice(0, var95Idx + 1);
+        const es99Losses = sorted.slice(0, var99Idx + 1);
+
+        const expectedShortfall95 = es95Losses.length > 0
+            ? Math.abs(jStat.mean(es95Losses))
+            : historicalVaR95;
+        const expectedShortfall99 = es99Losses.length > 0
+            ? Math.abs(jStat.mean(es99Losses))
+            : historicalVaR99;
+
+        // Parametric VaR (assuming normal distribution for comparison)
+        const mean = jStat.mean(tickMoves);
+        const std = jStat.stdev(tickMoves, true);
+        const z95 = 1.645; // 95% one-tailed
+        const z99 = 2.326; // 99% one-tailed
+
+        const parametricVaR95 = Math.abs(mean - z95 * std);
+        const parametricVaR99 = Math.abs(mean - z99 * std);
+
+        // VaR ratio: Historical/Parametric > 1 indicates fat tails
+        // "The Gaussian VaR systematically underestimates the frequency and magnitude of large losses"
+        const varRatio95 = parametricVaR95 > 0 ? historicalVaR95 / parametricVaR95 : 1;
+        const varRatio99 = parametricVaR99 > 0 ? historicalVaR99 / parametricVaR99 : 1;
+
+        // ES/VaR ratio - higher than ~1.15 (normal case) indicates fat tails
+        const esVarRatio95 = historicalVaR95 > 0 ? expectedShortfall95 / historicalVaR95 : 1;
+        const esVarRatio99 = historicalVaR99 > 0 ? expectedShortfall99 / historicalVaR99 : 1;
+
+        // Maximum observed loss and its sigma equivalence
+        const maxLoss = Math.abs(Math.min(...tickMoves));
+        const maxGain = Math.max(...tickMoves);
+        const sigmaOfMaxLoss = std > 0 ? (maxLoss - mean) / std : 0;
+
+        // Hill tail index estimator (for heavy tails)
+        // Focuses on the top 10% of absolute values
+        const absTickMoves = tickMoves.map(t => Math.abs(t));
+        const sortedAbs = [...absTickMoves].sort((a, b) => b - a); // Descending
+        const k = Math.max(Math.floor(n * 0.1), 5); // Top 10%, min 5 values
+        const threshold = sortedAbs[k - 1];
+
+        let hillSum = 0;
+        let hillCount = 0;
+        for (let i = 0; i < k && threshold > 0; i++) {
+            if (sortedAbs[i] > 0) {
+                hillSum += Math.log(sortedAbs[i] / threshold);
+                hillCount++;
+            }
+        }
+        const hillIndex = hillCount > 0 ? hillCount / hillSum : Infinity;
+        // Hill index < 4 suggests power-law tails; Normal distribution would have ~infinite
+
+        const results = {
+            // Historical estimates (preferred - no distribution assumption)
+            historicalVaR95,
+            historicalVaR99,
+            expectedShortfall95,
+            expectedShortfall99,
+            // Parametric estimates (for comparison)
+            parametricVaR95,
+            parametricVaR99,
+            // Ratios indicating tail fatness
+            varRatio95,
+            varRatio99,
+            esVarRatio95,
+            esVarRatio99,
+            // Extreme move analysis
+            maxLoss,
+            maxGain,
+            sigmaOfMaxLoss,
+            // Tail index
+            hillIndex,
+            isFatTailed: varRatio99 > 1.2 || hillIndex < 4,
+            // Risk level classification
+            riskLevel: this._classifyTailRisk(varRatio99, esVarRatio99, sigmaOfMaxLoss),
+        };
+
+        this.results.tailRisk = results;
+        return results;
+    }
+
+    /**
+     * Helper to classify tail risk level
+     */
+    _classifyTailRisk(varRatio, esVarRatio, sigmaMax) {
+        if (varRatio > 2.0 || sigmaMax > 6) return 'EXTREME';
+        if (varRatio > 1.5 || esVarRatio > 1.4 || sigmaMax > 4) return 'HIGH';
+        if (varRatio > 1.2 || esVarRatio > 1.25 || sigmaMax > 3) return 'MEDIUM';
+        return 'LOW';
+    }
+
+    /**
+     * Calculate normality tests
+     * Based on research: "The most immediate refutation of the Normal distribution is found in the higher moments"
+     */
+    calculateNormalityTests() {
+        const valid = this.dfValid;
+        if (valid.length < 20) return {}; // Need sufficient data
+
+        const tickMoves = valid.map(r => r.tickMove);
+        const n = valid.length;
+
+        const std = jStat.stdev(tickMoves, true);
+        if (std === 0) {
+            return { isFlatline: true };
+        }
+
+        // Calculate skewness and kurtosis using jStat
+        const skewness = jStat.skewness(tickMoves);
+        const kurtosis = jStat.kurtosis(tickMoves) - 3; // Excess kurtosis
+
+        // Jarque-Bera test
+        // JB = (n/6) * [S² + (1/4)(K-3)²]
+        // where S is skewness, K is kurtosis
+        // Under H0 (normality), JB ~ Chi²(2)
+        const jbStat = (n / 6) * (skewness ** 2 + 0.25 * kurtosis ** 2);
+
+        // Chi-squared p-value with 2 degrees of freedom
+        // Using survival function: P(X > jbStat) = 1 - CDF(jbStat)
+        const jbPValue = 1 - jStat.chisquare.cdf(jbStat, 2);
+
+        // Normality interpretation
+        const isNormal = jbPValue >= 0.05;
+
+        // Additional normality indicators
+        const isSkewed = Math.abs(skewness) > 0.5;
+        const hasExcessKurtosis = Math.abs(kurtosis) > 1;
+
+        // Descriptive labels based on research
+        let distributionType = 'NORMAL';
+        if (kurtosis > 3) {
+            distributionType = 'HIGHLY_LEPTOKURTIC'; // Very fat tails
+        } else if (kurtosis > 1) {
+            distributionType = 'LEPTOKURTIC'; // Fat tails
+        } else if (kurtosis < -1) {
+            distributionType = 'PLATYKURTIC'; // Thin tails
+        }
+
+        // Skewness interpretation
+        let skewType = 'SYMMETRIC';
+        if (skewness < -0.5) {
+            skewType = 'LEFT_SKEWED'; // More negative extremes - typical for equities
+        } else if (skewness > 0.5) {
+            skewType = 'RIGHT_SKEWED';
+        }
+
+        const results = {
+            skewness,
+            excessKurtosis: kurtosis,
+            jarqueBeraStat: jbStat,
+            jarqueBeraPValue: jbPValue,
+            isNormal,
+            isSkewed,
+            hasExcessKurtosis,
+            distributionType,
+            skewType,
+            // "6-sigma" event frequency comparison
+            // Under normal: 6-sigma is 1 in 500 million
+            // Research: "such events occur with alarming frequency"
+            sixSigmaThreshold: 6 * std,
+            observedMaxSigma: std > 0 ? Math.max(...tickMoves.map(t => Math.abs(t))) / std : 0,
+        };
+
+        this.results.normalityTests = results;
+        return results;
+    }
+
+    /**
+     * Calculate volatility clustering analysis (ARCH effects)
+     * Based on research: "large changes tend to be followed by large changes"
+     */
+    calculateVolatilityClustering() {
+        const valid = this.dfValid;
+        if (valid.length < 30) return {};
+
+        const tickMoves = valid.map(r => r.tickMove);
+        const n = valid.length;
+
+        // Calculate squared returns (for ARCH effect detection)
+        const squaredReturns = tickMoves.map(t => t * t);
+        const absReturns = tickMoves.map(t => Math.abs(t));
+
+        // Autocorrelation of squared returns (key ARCH indicator)
+        // "The autocorrelation of squared returns r_t² is positive, significant, and decays very slowly"
+        const squaredAutocorr = {};
+        const absAutocorr = {};
+
+        [1, 2, 3, 5, 10].forEach(lag => {
+            if (n > lag + 5) {
+                // Squared returns autocorrelation
+                const slice1Sq = squaredReturns.slice(0, -lag);
+                const slice2Sq = squaredReturns.slice(lag);
+                const std1Sq = jStat.stdev(slice1Sq, true);
+                const std2Sq = jStat.stdev(slice2Sq, true);
+
+                if (std1Sq > 0 && std2Sq > 0) {
+                    const mean1 = jStat.mean(slice1Sq);
+                    const mean2 = jStat.mean(slice2Sq);
+                    let sum = 0;
+                    for (let i = 0; i < slice1Sq.length; i++) {
+                        sum += (slice1Sq[i] - mean1) * (slice2Sq[i] - mean2);
+                    }
+                    const corr = sum / ((slice1Sq.length - 1) * std1Sq * std2Sq);
+                    squaredAutocorr[`lag_${lag}`] = isFinite(corr) ? corr : null;
+                } else {
+                    squaredAutocorr[`lag_${lag}`] = null;
+                }
+
+                // Absolute returns autocorrelation
+                const slice1Abs = absReturns.slice(0, -lag);
+                const slice2Abs = absReturns.slice(lag);
+                const std1Abs = jStat.stdev(slice1Abs, true);
+                const std2Abs = jStat.stdev(slice2Abs, true);
+
+                if (std1Abs > 0 && std2Abs > 0) {
+                    const mean1 = jStat.mean(slice1Abs);
+                    const mean2 = jStat.mean(slice2Abs);
+                    let sum = 0;
+                    for (let i = 0; i < slice1Abs.length; i++) {
+                        sum += (slice1Abs[i] - mean1) * (slice2Abs[i] - mean2);
+                    }
+                    const corr = sum / ((slice1Abs.length - 1) * std1Abs * std2Abs);
+                    absAutocorr[`lag_${lag}`] = isFinite(corr) ? corr : null;
+                } else {
+                    absAutocorr[`lag_${lag}`] = null;
+                }
+            }
+        });
+
+        // ARCH LM test approximation
+        // Significant if lag-1 squared autocorrelation is significant
+        const lag1SquaredCorr = squaredAutocorr['lag_1'] || 0;
+        const archTestStat = n * lag1SquaredCorr ** 2; // Approximate LM stat
+        const hasARCHEffects = Math.abs(lag1SquaredCorr) > 0.1;
+
+        // Volatility persistence - sum of autocorrelations
+        const autocorrSum = Object.values(squaredAutocorr)
+            .filter(v => v !== null)
+            .reduce((sum, v) => sum + Math.abs(v), 0);
+
+        const volatilityPersistence = autocorrSum / Object.values(squaredAutocorr).filter(v => v !== null).length;
+
+        // Leverage effect approximation
+        // "Negative correlation between an asset's return and its changes in volatility"
+        // Check if negative returns are followed by higher volatility
+        let leverageSum = 0;
+        let leverageCount = 0;
+        for (let i = 1; i < n; i++) {
+            if (tickMoves[i - 1] !== 0 && absReturns[i] !== undefined) {
+                // Correlation between return and next period's absolute return
+                leverageSum += tickMoves[i - 1] * absReturns[i];
+                leverageCount++;
+            }
+        }
+        const leverageEffect = leverageCount > 0 ? leverageSum / leverageCount : 0;
+        const hasLeverageEffect = leverageEffect < -0.1; // Negative indicates leverage effect
+
+        // Volatility regime detection
+        const recentVol = jStat.stdev(tickMoves.slice(-10), true);
+        const historicalVol = jStat.stdev(tickMoves.slice(0, -10), true);
+        const volRegimeRatio = historicalVol > 0 ? recentVol / historicalVol : 1;
+
+        let volRegime = 'NORMAL';
+        if (volRegimeRatio > 1.5) volRegime = 'HIGH_VOL';
+        else if (volRegimeRatio < 0.67) volRegime = 'LOW_VOL';
+
+        const results = {
+            squaredAutocorr,
+            absAutocorr,
+            archTestStat,
+            hasARCHEffects,
+            volatilityPersistence,
+            leverageEffect,
+            hasLeverageEffect,
+            recentVolatility: recentVol,
+            historicalVolatility: historicalVol,
+            volRegimeRatio,
+            volRegime,
+            // Interpretation based on research
+            clusteringStrength: hasARCHEffects
+                ? (volatilityPersistence > 0.3 ? 'STRONG' : 'MODERATE')
+                : 'WEAK',
+        };
+
+        this.results.volatilityClustering = results;
+        return results;
+    }
+
+    /**
+     * Calculate overall distribution regime classification
+     * Synthesizes all statistical insights into actionable categories
+     */
+    calculateDistributionRegime() {
+        // Ensure dependencies are calculated
+        if (!this.results.normalityTests) this.calculateNormalityTests();
+        if (!this.results.tailRisk) this.calculateTailRisk();
+        if (!this.results.volatilityClustering) this.calculateVolatilityClustering();
+
+        const normality = this.results.normalityTests || {};
+        const tailRisk = this.results.tailRisk || {};
+        const volCluster = this.results.volatilityClustering || {};
+
+        // Compute regime based on multiple factors
+        let regime = 'NORMAL';
+        const warnings = [];
+        let riskScore = 0; // 0-100
+
+        // Factor 1: Kurtosis/Fat tails
+        if (tailRisk.isFatTailed) {
+            regime = 'FAT_TAILED';
+            warnings.push('Fat tails detected - extreme moves more likely than normal distribution predicts');
+            riskScore += 30;
+        }
+        if ((normality.excessKurtosis || 0) > 3) {
+            regime = 'EXTREME_KURTOSIS';
+            warnings.push('Highly leptokurtic distribution - Black Swan events possible');
+            riskScore += 20;
+        }
+
+        // Factor 2: Skewness
+        if (normality.skewType === 'LEFT_SKEWED') {
+            warnings.push('Left-skewed: crashes more likely/severe than rallies');
+            riskScore += 15;
+        } else if (normality.skewType === 'RIGHT_SKEWED') {
+            warnings.push('Right-skewed: positive outliers more common');
+        }
+
+        // Factor 3: Volatility clustering
+        if (volCluster.hasARCHEffects) {
+            if (volCluster.clusteringStrength === 'STRONG') {
+                regime = regime === 'NORMAL' ? 'CLUSTERED_VOL' : regime + '_CLUSTERED';
+                warnings.push('Strong volatility clustering - turbulent periods tend to persist');
+                riskScore += 20;
+            } else {
+                warnings.push('Moderate volatility clustering detected');
+                riskScore += 10;
+            }
+        }
+
+        // Factor 4: Current volatility regime
+        if (volCluster.volRegime === 'HIGH_VOL') {
+            warnings.push('Currently in high volatility regime');
+            riskScore += 15;
+        }
+
+        // Factor 5: Leverage effect
+        if (volCluster.hasLeverageEffect) {
+            warnings.push('Leverage effect: drops likely to increase volatility more than rallies');
+            riskScore += 10;
+        }
+
+        // Factor 6: Tail risk level
+        const tailLevel = tailRisk.riskLevel || 'LOW';
+        if (tailLevel === 'EXTREME') {
+            riskScore += 25;
+        } else if (tailLevel === 'HIGH') {
+            riskScore += 15;
+        } else if (tailLevel === 'MEDIUM') {
+            riskScore += 5;
+        }
+
+        // Normalize risk score
+        riskScore = Math.min(riskScore, 100);
+
+        // Overall risk level
+        let overallRiskLevel = 'LOW';
+        if (riskScore >= 70) overallRiskLevel = 'EXTREME';
+        else if (riskScore >= 50) overallRiskLevel = 'HIGH';
+        else if (riskScore >= 30) overallRiskLevel = 'MEDIUM';
+
+        // Model recommendation based on research
+        let modelRecommendation = 'Standard analysis appropriate';
+        if (regime !== 'NORMAL' || riskScore > 30) {
+            if (tailRisk.isFatTailed && volCluster.hasARCHEffects) {
+                modelRecommendation = 'Consider GARCH-EVT hybrid approach for risk estimation';
+            } else if (tailRisk.isFatTailed) {
+                modelRecommendation = 'Use Student-t distribution for VaR calculations';
+            } else if (volCluster.hasARCHEffects) {
+                modelRecommendation = 'Account for volatility dynamics in position sizing';
+            }
+        }
+
+        const results = {
+            regime,
+            riskScore,
+            overallRiskLevel,
+            warnings,
+            modelRecommendation,
+            // Summary flags for UI
+            isNormal: normality.isNormal && !tailRisk.isFatTailed && !volCluster.hasARCHEffects,
+            hasTailRisk: tailRisk.isFatTailed,
+            hasVolClustering: volCluster.hasARCHEffects,
+            hasLeverageEffect: volCluster.hasLeverageEffect,
+            isLeftSkewed: normality.skewType === 'LEFT_SKEWED',
+        };
+
+        this.results.distributionRegime = results;
+        return results;
+    }
+
+    /**
      * Get tick distribution for histogram
      */
     getTickDistribution() {
