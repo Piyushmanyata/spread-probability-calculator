@@ -69,6 +69,7 @@ class SpreadCalculator:
     def __init__(self, config: Config):
         self.config = config
         self.df: Optional[pd.DataFrame] = None
+        self.df_raw: Optional[pd.DataFrame] = None
         self.df_valid: Optional[pd.DataFrame] = None
         self.results: Dict = {}
     

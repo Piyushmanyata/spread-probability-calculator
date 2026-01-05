@@ -1,6 +1,8 @@
-import { memo } from 'react';
+import { memo, useState } from 'react';
 
 function DistributionInsights({ normalityTests, volatilityClustering, distributionRegime }) {
+    const [showDetails, setShowDetails] = useState(false);
+
     // If no data at all, don't render
     if (!normalityTests && !volatilityClustering && !distributionRegime) {
         return null;
@@ -9,34 +11,104 @@ function DistributionInsights({ normalityTests, volatilityClustering, distributi
     const formatNum = (v, d = 2) =>
         v !== undefined && v !== null && !isNaN(v) && isFinite(v) ? v.toFixed(d) : '-';
 
-    const getRegimeBadgeColor = (regime) => {
-        switch (regime) {
-            case 'EXTREME_KURTOSIS':
-            case 'FAT_TAILED_CLUSTERED':
-                return 'bg-red-500/20 text-red-400 border-red-500/30';
-            case 'FAT_TAILED':
-            case 'CLUSTERED_VOL':
-                return 'bg-orange-500/20 text-orange-400 border-orange-500/30';
-            case 'NORMAL':
-                return 'bg-green-500/20 text-green-400 border-green-500/30';
-            default:
-                return 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30';
+    // Simple explanations for complex stats
+    const getSimpleExplanations = () => {
+        const explanations = [];
+
+        // Is the data "normal"?
+        if (normalityTests && !normalityTests.isFlatline) {
+            if (!normalityTests.isNormal) {
+                explanations.push({
+                    icon: '⚠️',
+                    title: 'Expect Surprises',
+                    detail: "Prices don't follow typical patterns - unusual moves happen more often",
+                    color: 'text-yellow-400',
+                    bgColor: 'bg-yellow-500/10',
+                });
+            } else {
+                explanations.push({
+                    icon: '✓',
+                    title: 'Normal Behavior',
+                    detail: 'Price movements follow predictable patterns',
+                    color: 'text-green-400',
+                    bgColor: 'bg-green-500/10',
+                });
+            }
+
+            // Fat tails explanation
+            if (normalityTests.excessKurtosis > 1) {
+                explanations.push({
+                    icon: '💥',
+                    title: 'Big Moves Possible',
+                    detail: 'Extreme price swings happen more often than you might think',
+                    color: 'text-orange-400',
+                    bgColor: 'bg-orange-500/10',
+                });
+            }
+
+            // Skewness explanation
+            if (normalityTests.skewType === 'LEFT_SKEWED') {
+                explanations.push({
+                    icon: '📉',
+                    title: 'Drops Hit Harder',
+                    detail: 'Big down moves are more common than big up moves',
+                    color: 'text-red-400',
+                    bgColor: 'bg-red-500/10',
+                });
+            } else if (normalityTests.skewType === 'RIGHT_SKEWED') {
+                explanations.push({
+                    icon: '📈',
+                    title: 'Upside Potential',
+                    detail: 'Big up moves are more common than big down moves',
+                    color: 'text-green-400',
+                    bgColor: 'bg-green-500/10',
+                });
+            }
         }
+
+        // Volatility clustering
+        if (volatilityClustering?.hasARCHEffects) {
+            explanations.push({
+                icon: '🌊',
+                title: 'Volatility Comes in Waves',
+                detail: 'Calm periods cluster together, as do turbulent ones',
+                color: 'text-purple-400',
+                bgColor: 'bg-purple-500/10',
+            });
+        }
+
+        // Current volatility regime
+        if (volatilityClustering?.volRegime === 'HIGH_VOL') {
+            explanations.push({
+                icon: '⚡',
+                title: 'High Volatility Mode',
+                detail: 'Market is currently more active than usual',
+                color: 'text-red-400',
+                bgColor: 'bg-red-500/10',
+            });
+        } else if (volatilityClustering?.volRegime === 'LOW_VOL') {
+            explanations.push({
+                icon: '😴',
+                title: 'Low Volatility Mode',
+                detail: 'Market is currently calm with small moves',
+                color: 'text-blue-400',
+                bgColor: 'bg-blue-500/10',
+            });
+        }
+
+        return explanations;
     };
 
-    const getRiskScoreColor = (score) => {
-        if (score >= 70) return 'text-red-400';
-        if (score >= 50) return 'text-orange-400';
-        if (score >= 30) return 'text-yellow-400';
-        return 'text-green-400';
+    const explanations = getSimpleExplanations();
+    const riskScore = distributionRegime?.riskScore || 0;
+
+    const getRiskLabel = (score) => {
+        if (score >= 70) return { text: 'High Risk', color: 'text-red-400', bg: 'bg-red-500' };
+        if (score >= 40) return { text: 'Medium Risk', color: 'text-yellow-400', bg: 'bg-yellow-500' };
+        return { text: 'Low Risk', color: 'text-green-400', bg: 'bg-green-500' };
     };
 
-    const StatCard = ({ title, children }) => (
-        <div className="p-4 rounded-lg bg-gray-800/50">
-            <h5 className="text-sm uppercase tracking-wider text-gray-500 mb-3">{title}</h5>
-            {children}
-        </div>
-    );
+    const riskLabel = getRiskLabel(riskScore);
 
     return (
         <div className="glass-card p-6 glass-card-hover">
@@ -44,151 +116,79 @@ function DistributionInsights({ normalityTests, volatilityClustering, distributi
                 <svg className="w-5 h-5 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
                 </svg>
-                Distribution Insights
-                {distributionRegime && (
-                    <span className={`ml-auto px-3 py-1 text-sm rounded-full border ${getRegimeBadgeColor(distributionRegime.regime)}`}>
-                        {distributionRegime.regime?.replace(/_/g, ' ')}
-                    </span>
-                )}
+                How This Data Behaves
+                <span className={`ml-auto px-3 py-1 text-sm rounded-full ${riskLabel.color} bg-gray-800/50 border border-gray-700`}>
+                    {riskLabel.text}
+                </span>
             </h3>
 
             {/* Risk Score Bar */}
-            {distributionRegime && (
-                <div className="mb-6">
-                    <div className="flex justify-between items-center mb-2">
-                        <span className="text-sm text-gray-400">Statistical Risk Score</span>
-                        <span className={`font-mono text-lg font-bold ${getRiskScoreColor(distributionRegime.riskScore)}`}>
-                            {distributionRegime.riskScore}/100
-                        </span>
-                    </div>
-                    <div className="h-2 bg-gray-700 rounded-full overflow-hidden">
-                        <div
-                            className={`h-full transition-all duration-500 ${distributionRegime.riskScore >= 70 ? 'bg-red-500' :
-                                    distributionRegime.riskScore >= 50 ? 'bg-orange-500' :
-                                        distributionRegime.riskScore >= 30 ? 'bg-yellow-500' : 'bg-green-500'
-                                }`}
-                            style={{ width: `${distributionRegime.riskScore}%` }}
-                        />
-                    </div>
+            <div className="mb-6">
+                <div className="flex justify-between items-center mb-2">
+                    <span className="text-sm text-gray-400">Overall Risk Level</span>
+                    <span className={`font-mono text-lg font-bold ${riskLabel.color}`}>
+                        {riskScore}/100
+                    </span>
                 </div>
-            )}
-
-            <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4 mb-4">
-                {/* Normality Test */}
-                {normalityTests && !normalityTests.isFlatline && (
-                    <StatCard title="Normality Test (Jarque-Bera)">
-                        <div className="space-y-2 text-sm">
-                            <div className="flex justify-between">
-                                <span className="text-gray-400">JB Statistic</span>
-                                <span className="font-mono">{formatNum(normalityTests.jarqueBeraStat, 2)}</span>
-                            </div>
-                            <div className="flex justify-between">
-                                <span className="text-gray-400">p-value</span>
-                                <span className={`font-mono ${normalityTests.jarqueBeraPValue < 0.05 ? 'text-red-400' : 'text-green-400'}`}>
-                                    {formatNum(normalityTests.jarqueBeraPValue, 4)}
-                                </span>
-                            </div>
-                            <div className="pt-2 border-t border-gray-700">
-                                <span className={`text-sm font-medium ${normalityTests.isNormal ? 'text-green-400' : 'text-yellow-400'}`}>
-                                    {normalityTests.isNormal ? '✓ Normal (cannot reject H₀)' : '⚠️ Non-Normal (reject H₀)'}
-                                </span>
-                            </div>
-                        </div>
-                    </StatCard>
-                )}
-
-                {/* Distribution Shape */}
-                {normalityTests && !normalityTests.isFlatline && (
-                    <StatCard title="Distribution Shape">
-                        <div className="space-y-2 text-sm">
-                            <div className="flex justify-between items-center">
-                                <span className="text-gray-400">Type</span>
-                                <span className={`px-2 py-0.5 rounded text-xs ${normalityTests.distributionType.includes('LEPTOKURTIC') ? 'bg-orange-500/20 text-orange-400' :
-                                        normalityTests.distributionType === 'PLATYKURTIC' ? 'bg-blue-500/20 text-blue-400' :
-                                            'bg-green-500/20 text-green-400'
-                                    }`}>
-                                    {normalityTests.distributionType?.replace('_', ' ')}
-                                </span>
-                            </div>
-                            <div className="flex justify-between items-center">
-                                <span className="text-gray-400">Skewness</span>
-                                <span className={`px-2 py-0.5 rounded text-xs ${normalityTests.skewType === 'LEFT_SKEWED' ? 'bg-red-500/20 text-red-400' :
-                                        normalityTests.skewType === 'RIGHT_SKEWED' ? 'bg-green-500/20 text-green-400' :
-                                            'bg-gray-500/20 text-gray-400'
-                                    }`}>
-                                    {normalityTests.skewType?.replace('_', ' ')}
-                                </span>
-                            </div>
-                            <div className="flex justify-between">
-                                <span className="text-gray-400">Max Observed</span>
-                                <span className="font-mono">{formatNum(normalityTests.observedMaxSigma, 1)}σ</span>
-                            </div>
-                        </div>
-                    </StatCard>
-                )}
-
-                {/* Volatility Clustering */}
-                {volatilityClustering && Object.keys(volatilityClustering).length > 0 && (
-                    <StatCard title="Volatility Clustering">
-                        <div className="space-y-2 text-sm">
-                            <div className="flex justify-between items-center">
-                                <span className="text-gray-400">ARCH Effects</span>
-                                <span className={`font-medium ${volatilityClustering.hasARCHEffects ? 'text-orange-400' : 'text-green-400'}`}>
-                                    {volatilityClustering.hasARCHEffects ? 'Detected' : 'Not Detected'}
-                                </span>
-                            </div>
-                            <div className="flex justify-between items-center">
-                                <span className="text-gray-400">Clustering</span>
-                                <span className={`px-2 py-0.5 rounded text-xs ${volatilityClustering.clusteringStrength === 'STRONG' ? 'bg-red-500/20 text-red-400' :
-                                        volatilityClustering.clusteringStrength === 'MODERATE' ? 'bg-yellow-500/20 text-yellow-400' :
-                                            'bg-green-500/20 text-green-400'
-                                    }`}>
-                                    {volatilityClustering.clusteringStrength}
-                                </span>
-                            </div>
-                            <div className="flex justify-between items-center">
-                                <span className="text-gray-400">Vol Regime</span>
-                                <span className={`px-2 py-0.5 rounded text-xs ${volatilityClustering.volRegime === 'HIGH_VOL' ? 'bg-red-500/20 text-red-400' :
-                                        volatilityClustering.volRegime === 'LOW_VOL' ? 'bg-blue-500/20 text-blue-400' :
-                                            'bg-gray-500/20 text-gray-400'
-                                    }`}>
-                                    {volatilityClustering.volRegime?.replace('_', ' ')}
-                                </span>
-                            </div>
-                            {volatilityClustering.hasLeverageEffect && (
-                                <div className="pt-1">
-                                    <span className="text-xs text-orange-400">⚡ Leverage effect present</span>
-                                </div>
-                            )}
-                        </div>
-                    </StatCard>
-                )}
+                <div className="h-3 bg-gray-700 rounded-full overflow-hidden">
+                    <div
+                        className={`h-full transition-all duration-500 ${riskLabel.bg}`}
+                        style={{ width: `${riskScore}%` }}
+                    />
+                </div>
             </div>
 
-            {/* Warnings */}
-            {distributionRegime?.warnings?.length > 0 && (
-                <div className="p-4 rounded-lg bg-gray-800/30 border border-gray-700">
-                    <h5 className="text-sm font-medium text-gray-400 mb-2">⚠️ Risk Warnings</h5>
-                    <ul className="space-y-1">
-                        {distributionRegime.warnings.map((warning, idx) => (
-                            <li key={idx} className="text-sm text-yellow-400/80 flex items-start gap-2">
-                                <span className="text-yellow-500 mt-1">•</span>
-                                {warning}
-                            </li>
-                        ))}
-                    </ul>
-                </div>
-            )}
+            {/* Simple Explanations Grid */}
+            <div className="grid md:grid-cols-2 gap-3 mb-4">
+                {explanations.map((exp, idx) => (
+                    <div key={idx} className={`p-4 rounded-lg ${exp.bgColor} border border-gray-700`}>
+                        <div className="flex items-start gap-3">
+                            <span className="text-2xl">{exp.icon}</span>
+                            <div>
+                                <p className={`font-medium ${exp.color}`}>{exp.title}</p>
+                                <p className="text-sm text-gray-400 mt-1">{exp.detail}</p>
+                            </div>
+                        </div>
+                    </div>
+                ))}
+            </div>
 
-            {/* Model Recommendation */}
-            {distributionRegime?.modelRecommendation && distributionRegime.modelRecommendation !== 'Standard analysis appropriate' && (
-                <div className="mt-4 p-3 rounded-lg bg-primary-500/10 border border-primary-500/30">
-                    <p className="text-sm text-primary-400 flex items-center gap-2">
-                        <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                        </svg>
-                        <span><strong>Recommendation:</strong> {distributionRegime.modelRecommendation}</span>
-                    </p>
+            {/* Expandable Technical Details */}
+            <button
+                onClick={() => setShowDetails(!showDetails)}
+                className="w-full py-2 text-sm text-gray-500 hover:text-gray-300 flex items-center justify-center gap-2 transition-colors"
+            >
+                <span>{showDetails ? 'Hide' : 'Show'} Technical Details</span>
+                <svg className={`w-4 h-4 transition-transform ${showDetails ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                </svg>
+            </button>
+
+            {showDetails && (
+                <div className="mt-4 p-4 rounded-lg bg-gray-800/30 border border-gray-700 text-sm">
+                    <div className="grid md:grid-cols-3 gap-4">
+                        {normalityTests && !normalityTests.isFlatline && (
+                            <div>
+                                <p className="text-xs text-gray-500 uppercase mb-2">Normality Test</p>
+                                <p className="text-gray-400">JB Stat: <span className="text-white font-mono">{formatNum(normalityTests.jarqueBeraStat)}</span></p>
+                                <p className="text-gray-400">p-value: <span className={`font-mono ${normalityTests.jarqueBeraPValue < 0.05 ? 'text-red-400' : 'text-green-400'}`}>{formatNum(normalityTests.jarqueBeraPValue, 4)}</span></p>
+                            </div>
+                        )}
+                        {normalityTests && (
+                            <div>
+                                <p className="text-xs text-gray-500 uppercase mb-2">Shape</p>
+                                <p className="text-gray-400">Skewness: <span className="text-white font-mono">{formatNum(normalityTests.skewness)}</span></p>
+                                <p className="text-gray-400">Kurtosis: <span className="text-white font-mono">{formatNum(normalityTests.excessKurtosis)}</span></p>
+                            </div>
+                        )}
+                        {volatilityClustering && (
+                            <div>
+                                <p className="text-xs text-gray-500 uppercase mb-2">Volatility</p>
+                                <p className="text-gray-400">ARCH Effects: <span className={volatilityClustering.hasARCHEffects ? 'text-orange-400' : 'text-green-400'}>{volatilityClustering.hasARCHEffects ? 'Yes' : 'No'}</span></p>
+                                <p className="text-gray-400">Clustering: <span className="text-white">{volatilityClustering.clusteringStrength}</span></p>
+                            </div>
+                        )}
+                    </div>
                 </div>
             )}
         </div>
@@ -196,3 +196,4 @@ function DistributionInsights({ normalityTests, volatilityClustering, distributi
 }
 
 export default memo(DistributionInsights);
+

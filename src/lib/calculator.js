@@ -79,11 +79,11 @@ function getDateKey(date) {
  * Calculate days between two dates
  * @param {Date} d1 - Start date
  * @param {Date} d2 - End date
- * @returns {number} - Number of days between dates, or 0 if dates invalid
+ * @returns {number} - Number of days between dates, or Infinity if dates invalid
  */
 function daysBetween(d1, d2) {
     if (!d1 || !d2 || isNaN(d1.getTime()) || isNaN(d2.getTime())) {
-        return 0;
+        return Infinity; // Invalid dates should never be marked consecutive
     }
     const msPerDay = 24 * 60 * 60 * 1000;
     return Math.round((d2 - d1) / msPerDay);
@@ -974,6 +974,9 @@ export class SpreadCalculator {
         tickLevels.forEach(t => { counts[t] = { within: 0, breakout: 0 }; });
 
         // Single pass
+        // NOTE: "within N ticks" means absTickMove < N (strictly less than)
+        // i.e., for N=2, this counts moves of {-1, 0, 1}, NOT {-2, -1, 0, 1, 2}
+        // This is the "interior" of the range, not "at or within"
         for (const r of valid) {
             for (const nticks of tickLevels) {
                 if (r.absTickMove < nticks) counts[nticks].within++;

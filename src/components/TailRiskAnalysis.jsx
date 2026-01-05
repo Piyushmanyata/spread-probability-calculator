@@ -1,33 +1,60 @@
-import { memo } from 'react';
+import { memo, useState } from 'react';
 
+/**
+ * TailRiskAnalysis - Simplified tail risk display with visual indicators
+ * Shows risk in plain English with optional technical details
+ */
 function TailRiskAnalysis({ data, tickSize }) {
+    const [showDetails, setShowDetails] = useState(false);
+
     if (!data || Object.keys(data).length === 0) return null;
 
     const formatNum = (v, d = 2) =>
         v !== undefined && v !== null && !isNaN(v) && isFinite(v) ? v.toFixed(d) : '-';
 
     const formatTicks = (v) =>
-        v !== undefined && v !== null && !isNaN(v) ? `${v.toFixed(1)}T` : '-';
+        v !== undefined && v !== null && !isNaN(v) ? `${v.toFixed(1)}` : '-';
 
-    const getRiskColor = (level) => {
+    const getRiskInfo = (level) => {
         switch (level) {
-            case 'EXTREME': return 'text-red-500 bg-red-500/10 border-red-500/30';
-            case 'HIGH': return 'text-orange-400 bg-orange-500/10 border-orange-500/30';
-            case 'MEDIUM': return 'text-yellow-400 bg-yellow-500/10 border-yellow-500/30';
-            default: return 'text-green-400 bg-green-500/10 border-green-500/30';
-        }
-    };
-
-    const getRiskIcon = (level) => {
-        switch (level) {
-            case 'EXTREME': return '🚨';
-            case 'HIGH': return '⚠️';
-            case 'MEDIUM': return '📊';
-            default: return '✓';
+            case 'EXTREME': return {
+                color: 'text-red-500',
+                bgColor: 'bg-red-500/10',
+                borderColor: 'border-red-500/30',
+                icon: '🚨',
+                description: "Very high risk - extreme moves are likely"
+            };
+            case 'HIGH': return {
+                color: 'text-orange-400',
+                bgColor: 'bg-orange-500/10',
+                borderColor: 'border-orange-500/30',
+                icon: '⚠️',
+                description: "Elevated risk - be cautious with position size"
+            };
+            case 'MEDIUM': return {
+                color: 'text-yellow-400',
+                bgColor: 'bg-yellow-500/10',
+                borderColor: 'border-yellow-500/30',
+                icon: '📊',
+                description: "Moderate risk - normal market conditions"
+            };
+            default: return {
+                color: 'text-green-400',
+                bgColor: 'bg-green-500/10',
+                borderColor: 'border-green-500/30',
+                icon: '✓',
+                description: "Low risk - calm market conditions"
+            };
         }
     };
 
     const riskLevel = data.riskLevel || 'LOW';
+    const riskInfo = getRiskInfo(riskLevel);
+
+    // Calculate visual bar width (0-100)
+    const riskBarWidth = riskLevel === 'EXTREME' ? 100 :
+        riskLevel === 'HIGH' ? 75 :
+            riskLevel === 'MEDIUM' ? 50 : 25;
 
     return (
         <div className="glass-card p-6 glass-card-hover">
@@ -35,103 +62,115 @@ function TailRiskAnalysis({ data, tickSize }) {
                 <svg className="w-5 h-5 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
                 </svg>
-                Tail Risk Analysis
-                <span className={`ml-auto px-3 py-1 text-sm rounded-full border ${getRiskColor(riskLevel)}`}>
-                    {getRiskIcon(riskLevel)} {riskLevel} RISK
+                Worst Case Scenarios
+                <span className={`ml-auto px-3 py-1 text-sm rounded-full border ${riskInfo.bgColor} ${riskInfo.borderColor} ${riskInfo.color}`}>
+                    {riskInfo.icon} {riskLevel} RISK
                 </span>
             </h3>
 
-            <div className="grid md:grid-cols-2 gap-4 mb-4">
-                {/* VaR Section */}
-                <div className="p-4 rounded-lg bg-gray-800/50">
-                    <h4 className="text-sm uppercase tracking-wider text-gray-500 mb-3">Value at Risk (VaR)</h4>
-                    <div className="space-y-2 text-sm">
-                        <div className="flex justify-between">
-                            <span className="text-gray-400">95% VaR (Historical)</span>
-                            <span className="font-mono text-yellow-400">{formatTicks(data.historicalVaR95)}</span>
-                        </div>
-                        <div className="flex justify-between">
-                            <span className="text-gray-400">99% VaR (Historical)</span>
-                            <span className="font-mono text-red-400">{formatTicks(data.historicalVaR99)}</span>
-                        </div>
-                        <div className="border-t border-gray-700 pt-2 mt-2">
-                            <div className="flex justify-between">
-                                <span className="text-gray-500 text-xs">vs Parametric (Normal)</span>
-                                <span className={`font-mono text-xs ${data.varRatio99 > 1.2 ? 'text-red-400' : 'text-green-400'}`}>
-                                    {formatNum(data.varRatio99, 2)}x
-                                </span>
-                            </div>
-                        </div>
-                    </div>
-                </div>
+            {/* Main Risk Description */}
+            <div className={`p-4 rounded-lg mb-6 ${riskInfo.bgColor} border ${riskInfo.borderColor}`}>
+                <p className={`${riskInfo.color} font-medium`}>{riskInfo.description}</p>
+            </div>
 
-                {/* Expected Shortfall Section */}
-                <div className="p-4 rounded-lg bg-gray-800/50">
-                    <h4 className="text-sm uppercase tracking-wider text-gray-500 mb-3">Expected Shortfall (CVaR)</h4>
-                    <div className="space-y-2 text-sm">
-                        <div className="flex justify-between">
-                            <span className="text-gray-400">95% ES</span>
-                            <span className="font-mono text-yellow-400">{formatTicks(data.expectedShortfall95)}</span>
-                        </div>
-                        <div className="flex justify-between">
-                            <span className="text-gray-400">99% ES</span>
-                            <span className="font-mono text-red-400">{formatTicks(data.expectedShortfall99)}</span>
-                        </div>
-                        <div className="border-t border-gray-700 pt-2 mt-2">
-                            <div className="flex justify-between">
-                                <span className="text-gray-500 text-xs">ES/VaR Ratio (99%)</span>
-                                <span className={`font-mono text-xs ${data.esVarRatio99 > 1.25 ? 'text-orange-400' : 'text-gray-400'}`}>
-                                    {formatNum(data.esVarRatio99, 2)}
-                                </span>
-                            </div>
-                        </div>
+            {/* Visual Risk Meter */}
+            <div className="mb-6">
+                <div className="flex justify-between text-sm text-gray-500 mb-2">
+                    <span>Low Risk</span>
+                    <span>High Risk</span>
+                </div>
+                <div className="h-4 bg-gray-700 rounded-full overflow-hidden relative">
+                    {/* Gradient background showing zones */}
+                    <div className="absolute inset-0 flex">
+                        <div className="flex-1 bg-green-500/30"></div>
+                        <div className="flex-1 bg-yellow-500/30"></div>
+                        <div className="flex-1 bg-orange-500/30"></div>
+                        <div className="flex-1 bg-red-500/30"></div>
                     </div>
+                    {/* Risk indicator */}
+                    <div
+                        className="absolute h-full w-2 bg-white rounded-full shadow-lg transition-all duration-500"
+                        style={{ left: `calc(${riskBarWidth}% - 4px)` }}
+                    />
                 </div>
             </div>
 
-            {/* Extreme Move Analysis */}
-            <div className="p-4 rounded-lg bg-gray-800/30 border border-gray-700">
-                <h4 className="text-sm uppercase tracking-wider text-gray-500 mb-3">Extreme Move Analysis</h4>
-                <div className="grid grid-cols-3 gap-4">
-                    <div className="text-center">
-                        <p className="text-xs text-gray-500">Max Loss</p>
-                        <p className="font-mono text-lg text-red-400">-{formatTicks(data.maxLoss)}</p>
-                    </div>
-                    <div className="text-center">
-                        <p className="text-xs text-gray-500">Max Gain</p>
-                        <p className="font-mono text-lg text-green-400">+{formatTicks(data.maxGain)}</p>
-                    </div>
-                    <div className="text-center">
-                        <p className="text-xs text-gray-500">Max Loss (σ)</p>
-                        <p className={`font-mono text-lg ${data.sigmaOfMaxLoss > 4 ? 'text-red-400' : 'text-white'}`}>
-                            {formatNum(data.sigmaOfMaxLoss, 1)}σ
-                        </p>
-                    </div>
+            {/* Simple Stats Grid */}
+            <div className="grid grid-cols-3 gap-4 mb-6">
+                <div className="text-center p-4 rounded-lg bg-gray-800/50">
+                    <p className="text-sm text-gray-500 mb-1">Typical Bad Day</p>
+                    <p className="font-mono text-2xl text-yellow-400">-{formatTicks(data.historicalVaR95)}</p>
+                    <p className="text-xs text-gray-500">ticks (95% of days better)</p>
+                </div>
+                <div className="text-center p-4 rounded-lg bg-gray-800/50">
+                    <p className="text-sm text-gray-500 mb-1">Really Bad Day</p>
+                    <p className="font-mono text-2xl text-red-400">-{formatTicks(data.historicalVaR99)}</p>
+                    <p className="text-xs text-gray-500">ticks (99% of days better)</p>
+                </div>
+                <div className="text-center p-4 rounded-lg bg-gray-800/50">
+                    <p className="text-sm text-gray-500 mb-1">Worst Ever</p>
+                    <p className="font-mono text-2xl text-red-500">-{formatTicks(data.maxLoss)}</p>
+                    <p className="text-xs text-gray-500">ticks (historical max)</p>
                 </div>
             </div>
 
-            {/* Fat Tail Indicator */}
+            {/* Best Day for Context */}
+            <div className="flex items-center justify-between p-3 rounded-lg bg-green-500/10 border border-green-500/20 mb-4">
+                <span className="text-gray-400">Best day ever:</span>
+                <span className="font-mono text-xl text-green-400">+{formatTicks(data.maxGain)} ticks</span>
+            </div>
+
+            {/* Fat Tails Warning - Plain English */}
             {data.isFatTailed && (
-                <div className="mt-4 p-3 rounded-lg bg-red-500/10 border border-red-500/30 text-sm">
-                    <p className="text-red-400 flex items-center gap-2">
-                        <svg className="w-4 h-4 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                            <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
-                        </svg>
-                        <span>
-                            <strong>Fat Tails Detected:</strong> Historical returns show heavier tails than Normal distribution.
-                            Gaussian VaR underestimates risk by {formatNum((data.varRatio99 - 1) * 100, 0)}%.
-                        </span>
-                    </p>
+                <div className="p-4 rounded-lg bg-red-500/10 border border-red-500/30 mb-4">
+                    <div className="flex items-start gap-3">
+                        <span className="text-2xl">💥</span>
+                        <div>
+                            <p className="text-red-400 font-medium">Extreme Moves Happen More Than Expected</p>
+                            <p className="text-sm text-gray-400 mt-1">
+                                This spread has "fat tails" - meaning big surprises (both up and down)
+                                happen about {formatNum((data.varRatio99 - 1) * 100, 0)}% more often than normal patterns would suggest.
+                            </p>
+                        </div>
+                    </div>
                 </div>
             )}
 
-            {/* Interpretation */}
-            <p className="mt-4 text-xs text-gray-500">
-                VaR = Max expected loss at confidence level. ES = Average loss if VaR is breached.
-                ES/VaR &gt; 1.25 indicates fat tails; ratio &gt; 1.15 is normal.
-            </p>
+            {/* Expandable Technical Details */}
+            <button
+                onClick={() => setShowDetails(!showDetails)}
+                className="w-full py-2 text-sm text-gray-500 hover:text-gray-300 flex items-center justify-center gap-2 transition-colors"
+            >
+                <span>{showDetails ? 'Hide' : 'Show'} Technical Details</span>
+                <svg className={`w-4 h-4 transition-transform ${showDetails ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                </svg>
+            </button>
+
+            {showDetails && (
+                <div className="mt-4 p-4 rounded-lg bg-gray-800/30 border border-gray-700 text-sm">
+                    <div className="grid md:grid-cols-2 gap-4">
+                        <div>
+                            <p className="text-xs text-gray-500 uppercase mb-2">Value at Risk (VaR)</p>
+                            <p className="text-gray-400">95% VaR: <span className="text-white font-mono">{formatTicks(data.historicalVaR95)}T</span></p>
+                            <p className="text-gray-400">99% VaR: <span className="text-white font-mono">{formatTicks(data.historicalVaR99)}T</span></p>
+                            <p className="text-gray-400">VaR Ratio (99%): <span className={`font-mono ${data.varRatio99 > 1.2 ? 'text-red-400' : 'text-green-400'}`}>{formatNum(data.varRatio99)}x</span></p>
+                        </div>
+                        <div>
+                            <p className="text-xs text-gray-500 uppercase mb-2">Expected Shortfall (CVaR)</p>
+                            <p className="text-gray-400">95% ES: <span className="text-white font-mono">{formatTicks(data.expectedShortfall95)}T</span></p>
+                            <p className="text-gray-400">99% ES: <span className="text-white font-mono">{formatTicks(data.expectedShortfall99)}T</span></p>
+                            <p className="text-gray-400">ES/VaR Ratio: <span className="text-white font-mono">{formatNum(data.esVarRatio99)}</span></p>
+                        </div>
+                    </div>
+                    <p className="text-xs text-gray-600 mt-3">
+                        VaR = Maximum expected loss at confidence level. ES = Average loss when VaR is breached.
+                    </p>
+                </div>
+            )}
         </div>
     );
 }
 
 export default memo(TailRiskAnalysis);
+

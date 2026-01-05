@@ -11,6 +11,7 @@ import AdvancedStats from './components/AdvancedStats';
 import TailRiskAnalysis from './components/TailRiskAnalysis';
 import DistributionInsights from './components/DistributionInsights';
 import PredictiveInsights from './components/PredictiveInsights';
+import SimpleSummary from './components/SimpleSummary';
 import { SpreadCalculator, parseCSV, DEFAULT_CONFIG } from './lib/calculator';
 
 export default function App() {
@@ -152,10 +153,20 @@ export default function App() {
 
                             {/* Results Grid */}
                             <div className="results-grid">
+                                {/* Simple Summary - Hero Position (Beginner-Friendly) */}
+                                <div className="full-width-card">
+                                    <SimpleSummary
+                                        predictions={results.predictions}
+                                        distributionRegime={results.distributionRegime}
+                                        tailRisk={results.tailRisk}
+                                        config={config}
+                                    />
+                                </div>
+
                                 {/* Overview */}
                                 <SpreadOverview results={results} />
 
-                                {/* Predictive Insights - Hero Position */}
+                                {/* Predictive Insights - Detailed View */}
                                 <div className="full-width-card">
                                     <PredictiveInsights predictions={results.predictions} />
                                 </div>
