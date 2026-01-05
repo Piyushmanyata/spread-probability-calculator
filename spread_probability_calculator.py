@@ -442,7 +442,7 @@ class SpreadCalculator:
         - Strength scoring (1-10) with confluence boost
         - Proximity alerts and trading targets
         """
-        import pandas as pd  # Ensure pd.Timedelta available
+        # pd.Timedelta is already available from top-level import
         
         df_full = self.df.copy()
         tick_size = self.config.tick_size
@@ -850,7 +850,6 @@ class SpreadCalculator:
         if 'after_up_move' in cond:
             c = cond['after_up_move']
             p_up, p_down = c['prob_continue_up'], c['prob_reverse_down']
-            p_flat = c['prob_unchanged']
             activity = (p_up + p_down) * 100
             bias = p_down / (p_up + p_down) * 100 if (p_up + p_down) > 0 else 50
             activity_label = "High" if activity > 60 else "Medium" if activity > 30 else "Low"
@@ -864,7 +863,6 @@ class SpreadCalculator:
         if 'after_down_move' in cond:
             c = cond['after_down_move']
             p_up, p_down = c['prob_reverse_up'], c['prob_continue_down']
-            p_flat = c['prob_unchanged']
             activity = (p_up + p_down) * 100
             bias = p_up / (p_up + p_down) * 100 if (p_up + p_down) > 0 else 50
             activity_label = "High" if activity > 60 else "Medium" if activity > 30 else "Low"

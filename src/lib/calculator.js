@@ -905,7 +905,7 @@ export class SpreadCalculator {
                     currentDirection = 1;
                 }
                 consecutiveUp++;
-                if (consecutiveUp >= 2) twoUpCount++;
+                if (consecutiveUp === 2) twoUpCount++;  // FIX: Count ONCE when streak reaches 2, not every day in streak
                 consecutiveDown = 0;
             } else if (move < 0) {
                 if (currentDirection === -1) {
@@ -918,7 +918,7 @@ export class SpreadCalculator {
                     currentDirection = -1;
                 }
                 consecutiveDown++;
-                if (consecutiveDown >= 2) twoDownCount++;
+                if (consecutiveDown === 2) twoDownCount++;  // FIX: Count ONCE when streak reaches 2
                 consecutiveUp = 0;
             } else {
                 // Zero move breaks streak
@@ -1201,10 +1201,10 @@ export class SpreadCalculator {
         let hillSum = 0;
         let hillCount = 0;
         for (let i = 0; i < k && threshold > 0; i++) {
-            if (sortedAbs[i] > threshold) {  // FIX: Only count values ABOVE threshold
-                hillSum += Math.log(sortedAbs[i] / threshold);
-                hillCount++;
-            }
+            // FIX: Include values AT threshold (>= instead of >) for proper Hill estimation
+            // The Hill estimator uses all k order statistics above the threshold
+            hillSum += Math.log(sortedAbs[i] / threshold);
+            hillCount++;
         }
         // FIX: Handle edge case where hillSum is 0 or negative
         const hillIndex = (hillCount > 0 && hillSum > 0) ? hillCount / hillSum : Infinity;
@@ -1591,7 +1591,7 @@ export class SpreadCalculator {
         // Base probabilities from empirical data
         const probUp = empirical[1]?.probUpAtLeast || 0;
         const probDown = empirical[1]?.probDownAtLeast || 0;
-        const probFlat = 1 - probUp - probDown;
+        const probFlat = Math.max(0, 1 - probUp - probDown);  // FIX: Guard against negative values
 
         // Adjust based on conditional probabilities (momentum/mean-reversion)
         let adjustedProbUp = probUp;
